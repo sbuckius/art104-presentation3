@@ -100,8 +100,7 @@ const firebaseConfig = {
   projectId: "art104-presentation3",
   storageBucket: "art104-presentation3.firebasestorage.app",
   messagingSenderId: "163602255735",
-  appId: "1:163602255735:web:a4344f4dc757231b825b72",
-  measurementId: "G-EJ5V1WLQPM"
+  appId: "1:163602255735:web:a4344f4dc757231b825b72"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -132,11 +131,11 @@ for (let i = 1; i <= 24; i++) {
     <p>
       Write one sentence about either:
       <br><br>
-      <strong>1)</strong> Something new that you learned from the presentation
+      <strong>1)</strong> Something new that you learned
       <br>
       <strong>OR</strong>
       <br>
-      <strong>2)</strong> Something that surprised you in the presentation.
+      <strong>2)</strong> Something that surprised you.
     </p>
     <textarea id="text-${i}" placeholder="Write one sentence..."></textarea><br>
     <button onclick="submitAnswer(${i})">Submit</button>
@@ -191,26 +190,6 @@ async function getMyResponses() {
   return snapshot.docs.map(d => d.data());
 }
 
-/* Admin Reset */
-window.adminReset = async function() {
-  const password = prompt("Enter admin password:");
-  if (password !== "admin123") {
-    alert("Incorrect password");
-    return;
-  }
-
-  const confirmed = confirm("Delete ALL responses?");
-  if (!confirmed) return;
-
-  const snapshot = await getDocs(collection(db, "responses"));
-  const deletePromises = snapshot.docs.map(document => 
-    deleteDoc(doc(db, "responses", document.id))
-  );
-
-  await Promise.all(deletePromises);
-  alert(`Deleted ${snapshot.docs.length} responses.`);
-};
-
 /* Engineering Frame */
 function addEngineeringFrame(pdf, pageNumber, titleText) {
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -222,6 +201,7 @@ function addEngineeringFrame(pdf, pageNumber, titleText) {
   pdf.rect(10, pageHeight - 30, pageWidth - 20, 20);
 
   pdf.setFontSize(8);
+  pdf.setFont("helvetica", "normal");
   pdf.text(titleText, 15, pageHeight - 20);
   pdf.text(`Date: ${new Date().toLocaleDateString()}`, 15, pageHeight - 15);
   pdf.text(`Page ${pageNumber}`, pageWidth - 30, pageHeight - 15);
@@ -229,6 +209,7 @@ function addEngineeringFrame(pdf, pageNumber, titleText) {
 
 /* Student PDF */
 window.exportMyPDF = async function () {
+
   const responses = await getMyResponses();
   if (!responses.length) return alert("No responses found.");
 
@@ -237,96 +218,45 @@ window.exportMyPDF = async function () {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF("p", "mm", "a4");
 
-  let y = 30;
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const marginTop = 30;
+  const marginBottom = 30;
+  const lineHeight = 6;
+
+  const headingSize = 16;  // Larger
+  const answerSize = 12;   // Consistent answer size
+
+  let y = marginTop;
   let pageNumber = 1;
 
   addEngineeringFrame(pdf, pageNumber, `Student Copy — ID: ${anonID}`);
-  pdf.setFontSize(12);
 
   for (let r of responses) {
-    const wrapped = pdf.splitTextToSize(r.text, 170);
 
-    if (y + wrapped.length * 6 > 260) {
+    const wrapped = pdf.splitTextToSize(r.text, 170);
+    const blockHeight = wrapped.length * lineHeight + 18;
+
+    if (y + blockHeight > pageHeight - marginBottom) {
       pdf.addPage();
       pageNumber++;
       addEngineeringFrame(pdf, pageNumber, `Student Copy — ID: ${anonID}`);
-      y = 30;
+      y = marginTop;
     }
 
+    // HEADING
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(headingSize);
     pdf.text(`Presentation ${r.questionNumber}`, 20, y);
-    y += 8;
+    y += 10;
+
+    // ANSWER
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(answerSize);
     pdf.text(wrapped, 20, y);
-    y += wrapped.length * 6 + 10;
+    y += wrapped.length * lineHeight + 12;
   }
 
   pdf.save(`student_${anonID}.pdf`);
-};
-
-/* Teacher PDF */
-window.exportTeacherPDF = async function () {
-  const snapshot = await getDocs(collection(db, "responses"));
-  const allResponses = snapshot.docs.map(d => d.data());
-  if (!allResponses.length) return alert("No responses found.");
-
-  allResponses.sort((a, b) =>
-    a.questionNumber === b.questionNumber
-      ? a.anonID.localeCompare(b.anonID)
-      : a.questionNumber - b.questionNumber
-  );
-
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF("p", "mm", "a4");
-
-  let y = 30;
-  let pageNumber = 1;
-
-  addEngineeringFrame(pdf, pageNumber, "Teacher Copy — All Students");
-  pdf.setFontSize(10);
-
-  for (let r of allResponses) {
-    const line = `Presentation ${r.questionNumber} — ${r.anonID}: ${r.text}`;
-    const wrapped = pdf.splitTextToSize(line, 170);
-
-    if (y + wrapped.length * 5 > 260) {
-      pdf.addPage();
-      pageNumber++;
-      addEngineeringFrame(pdf, pageNumber, "Teacher Copy — All Students");
-      y = 30;
-    }
-
-    pdf.text(wrapped, 20, y);
-    y += wrapped.length * 5 + 8;
-  }
-
-  pdf.save("teacher_all_students.pdf");
-};
-
-/* PNG */
-window.exportPNG = async function() {
-  const canvas = await html2canvas(document.body, { scale: 2 });
-  const link = document.createElement("a");
-  link.download = "full_page.png";
-  link.href = canvas.toDataURL("image/png");
-  link.click();
-};
-
-/* CSV */
-window.exportCSV = async function() {
-  const responses = await getMyResponses();
-  if (!responses.length) return alert("No responses found.");
-
-  let csv = "Presentation,Response\n";
-
-  responses.forEach(r => {
-    const clean = r.text.replace(/"/g, '""');
-    csv += `"Presentation ${r.questionNumber}","${clean}"\n`;
-  });
-
-  const blob = new Blob([csv], { type: "text/csv" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `student_${anonID}.csv`;
-  link.click();
 };
 
 </script>
