@@ -46,8 +46,10 @@ textarea {
 
 .responses {
   margin-top:8px;
-  font-size:0.8rem;
+  font-size:0.9rem;
   color:#aaa;
+  max-height:120px;
+  overflow-y:auto;
 }
 
 button {
@@ -68,6 +70,7 @@ button {
 
 <div id="exportBar">
   <button onclick="exportMyPDF()">Export My Answers (Student PDF)</button>
+  <button onclick="exportTeacherPDF()">Export Teacher PDF (All Students)</button>
   <button class="admin-btn" onclick="adminReset()">Admin Reset</button>
 </div>
 
@@ -90,7 +93,7 @@ import {
   doc
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-/* Firebase */
+/* Firebase Config */
 const firebaseConfig = {
 
   apiKey: "AIzaSyDKIdi4HrzXvL-1nBk_Ct1gTIViDRnhSxk",
@@ -134,7 +137,7 @@ for (let i = 1; i <= 24; i++) {
   div.className = "question";
   div.innerHTML = `
     <h3>Presentation ${i}</h3>
-    <textarea id="text-${i}" placeholder="Write one sentence..."></textarea><br>
+    <textarea id="text-${i}" placeholder="Write one sentence about something new or surprising..."></textarea><br>
     <button onclick="submitAnswer(${i})">Submit</button>
     <div class="responses" id="responses-${i}"></div>
   `;
@@ -142,7 +145,7 @@ for (let i = 1; i <= 24; i++) {
   listenForResponses(i);
 }
 
-/* Submit */
+/* Submit Answer */
 window.submitAnswer = async function(num) {
   const text = document.getElementById(`text-${num}`).value.trim();
   if (!text) return alert("Please write something first.");
@@ -187,6 +190,12 @@ async function getMyResponses() {
   return snapshot.docs.map(d => d.data());
 }
 
+/* Fetch All Responses */
+async function getAllResponses() {
+  const snapshot = await getDocs(collection(db, "responses"));
+  return snapshot.docs.map(d => d.data());
+}
+
 /* Engineering Frame */
 function addEngineeringFrame(pdf, pageNumber, titleText) {
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -204,13 +213,8 @@ function addEngineeringFrame(pdf, pageNumber, titleText) {
   pdf.text(`Page ${pageNumber}`, pageWidth - 30, pageHeight - 15);
 }
 
-/* Continuous Flow PDF */
-window.exportMyPDF = async function () {
-
-  const responses = await getMyResponses();
-  if (!responses.length) return alert("No responses found.");
-
-  responses.sort((a, b) => a.questionNumber - b.questionNumber);
+/* PDF Export Function (Shared) */
+async function exportPDF(responses, filename, titleText) {
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF("p", "mm", "a4");
@@ -230,7 +234,7 @@ window.exportMyPDF = async function () {
   let y = marginTop;
   let pageNumber = 1;
 
-  addEngineeringFrame(pdf, pageNumber, `Student Copy — ID: ${anonID}`);
+  addEngineeringFrame(pdf, pageNumber, titleText);
 
   for (let r of responses) {
 
@@ -240,11 +244,11 @@ window.exportMyPDF = async function () {
     if (y + 10 > pageHeight - marginBottom) {
       pdf.addPage();
       pageNumber++;
-      addEngineeringFrame(pdf, pageNumber, `Student Copy — ID: ${anonID}`);
+      addEngineeringFrame(pdf, pageNumber, titleText);
       y = marginTop;
     }
 
-    pdf.text(`Presentation ${r.questionNumber}`, marginLeft, y);
+    pdf.text(`Presentation ${r.questionNumber} — ${r.anonID || ""}`, marginLeft, y);
     y += 10;
 
     pdf.setFont("helvetica", "normal");
@@ -256,7 +260,7 @@ window.exportMyPDF = async function () {
       if (y + lineHeight > pageHeight - marginBottom) {
         pdf.addPage();
         pageNumber++;
-        addEngineeringFrame(pdf, pageNumber, `Student Copy — ID: ${anonID}`);
+        addEngineeringFrame(pdf, pageNumber, titleText);
         y = marginTop;
       }
 
@@ -267,11 +271,37 @@ window.exportMyPDF = async function () {
     y += 8;
   }
 
-  pdf.save(`student_${anonID}.pdf`);
+  pdf.save(filename);
+}
+
+/* Student PDF */
+window.exportMyPDF = async function () {
+  const responses = await getMyResponses();
+  if (!responses.length) return alert("No responses found.");
+  responses.sort((a, b) => a.questionNumber - b.questionNumber);
+  exportPDF(responses, `student_${anonID}.pdf`, `Student Copy — ID: ${anonID}`);
 };
 
-/* Admin Reset */
+/* Teacher PDF */
+window.exportTeacherPDF = async function () {
+  let responses = await getAllResponses();
+  if (!responses.length) return alert("No responses found.");
+  responses.sort((a, b) => {
+    if (a.questionNumber === b.questionNumber)
+      return a.anonID.localeCompare(b.anonID);
+    return a.questionNumber - b.questionNumber;
+  });
+  exportPDF(responses, `teacher_all_students.pdf`, `Teacher Copy — All Students`);
+};
+
+/* Password-Protected Admin Reset */
 window.adminReset = async function () {
+
+  const password = prompt("Enter admin password:");
+  if (password !== "admin123") {   // <- change this to your own password
+    alert("Incorrect password");
+    return;
+  }
 
   const confirmed = confirm(
     "Are you sure you want to delete ALL responses? This cannot be undone."
@@ -279,14 +309,19 @@ window.adminReset = async function () {
 
   if (!confirmed) return;
 
-  const snapshot = await getDocs(collection(db, "responses"));
-  const deletions = snapshot.docs.map(docSnap =>
-    deleteDoc(doc(db, "responses", docSnap.id))
-  );
+  try {
+    const snapshot = await getDocs(collection(db, "responses"));
+    const deletions = snapshot.docs.map(docSnap =>
+      deleteDoc(doc(db, "responses", docSnap.id))
+    );
 
-  await Promise.all(deletions);
+    await Promise.all(deletions);
 
-  alert("All responses deleted.");
+    alert(`All responses deleted (${snapshot.docs.length} entries).`);
+  } catch (err) {
+    console.error(err);
+    alert("Error deleting responses: " + err.message);
+  }
 };
 
 </script>
