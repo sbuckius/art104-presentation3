@@ -93,23 +93,15 @@ import {
   doc
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-/* Firebase */
+/* Firebase Config */
 const firebaseConfig = {
-
   apiKey: "AIzaSyDKIdi4HrzXvL-1nBk_Ct1gTIViDRnhSxk",
-
   authDomain: "art104-presentation3.firebaseapp.com",
-
   projectId: "art104-presentation3",
-
   storageBucket: "art104-presentation3.firebasestorage.app",
-
   messagingSenderId: "163602255735",
-
   appId: "1:163602255735:web:a4344f4dc757231b825b72",
-
   measurementId: "G-EJ5V1WLQPM"
-
 };
 
 const app = initializeApp(firebaseConfig);
@@ -180,8 +172,8 @@ function listenForResponses(num) {
     const box = document.getElementById(`responses-${num}`);
     box.innerHTML = "";
 
-    snapshot.forEach((doc) => {
-      const d = doc.data();
+    snapshot.forEach((docSnap) => {
+      const d = docSnap.data();
       const row = document.createElement("div");
       row.textContent = `${d.anonID}: ${d.text}`;
       box.appendChild(row);
@@ -207,7 +199,7 @@ window.adminReset = async function() {
     return;
   }
 
-  const confirmed = confirm("This will delete ALL responses from the database. Are you sure?");
+  const confirmed = confirm("Delete ALL responses?");
   if (!confirmed) return;
 
   const snapshot = await getDocs(collection(db, "responses"));
@@ -216,10 +208,126 @@ window.adminReset = async function() {
   );
 
   await Promise.all(deletePromises);
-  alert(`Successfully deleted ${snapshot.docs.length} responses.`);
+  alert(`Deleted ${snapshot.docs.length} responses.`);
 };
 
-/* The PDF, PNG, CSV export functions remain exactly the same as your original version */
+/* Engineering Frame */
+function addEngineeringFrame(pdf, pageNumber, titleText) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+
+  pdf.setLineWidth(0.8);
+  pdf.rect(10, 10, pageWidth - 20, pageHeight - 20);
+  pdf.setLineWidth(0.5);
+  pdf.rect(10, pageHeight - 30, pageWidth - 20, 20);
+
+  pdf.setFontSize(8);
+  pdf.text(titleText, 15, pageHeight - 20);
+  pdf.text(`Date: ${new Date().toLocaleDateString()}`, 15, pageHeight - 15);
+  pdf.text(`Page ${pageNumber}`, pageWidth - 30, pageHeight - 15);
+}
+
+/* Student PDF */
+window.exportMyPDF = async function () {
+  const responses = await getMyResponses();
+  if (!responses.length) return alert("No responses found.");
+
+  responses.sort((a, b) => a.questionNumber - b.questionNumber);
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF("p", "mm", "a4");
+
+  let y = 30;
+  let pageNumber = 1;
+
+  addEngineeringFrame(pdf, pageNumber, `Student Copy — ID: ${anonID}`);
+  pdf.setFontSize(12);
+
+  for (let r of responses) {
+    const wrapped = pdf.splitTextToSize(r.text, 170);
+
+    if (y + wrapped.length * 6 > 260) {
+      pdf.addPage();
+      pageNumber++;
+      addEngineeringFrame(pdf, pageNumber, `Student Copy — ID: ${anonID}`);
+      y = 30;
+    }
+
+    pdf.text(`Presentation ${r.questionNumber}`, 20, y);
+    y += 8;
+    pdf.text(wrapped, 20, y);
+    y += wrapped.length * 6 + 10;
+  }
+
+  pdf.save(`student_${anonID}.pdf`);
+};
+
+/* Teacher PDF */
+window.exportTeacherPDF = async function () {
+  const snapshot = await getDocs(collection(db, "responses"));
+  const allResponses = snapshot.docs.map(d => d.data());
+  if (!allResponses.length) return alert("No responses found.");
+
+  allResponses.sort((a, b) =>
+    a.questionNumber === b.questionNumber
+      ? a.anonID.localeCompare(b.anonID)
+      : a.questionNumber - b.questionNumber
+  );
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF("p", "mm", "a4");
+
+  let y = 30;
+  let pageNumber = 1;
+
+  addEngineeringFrame(pdf, pageNumber, "Teacher Copy — All Students");
+  pdf.setFontSize(10);
+
+  for (let r of allResponses) {
+    const line = `Presentation ${r.questionNumber} — ${r.anonID}: ${r.text}`;
+    const wrapped = pdf.splitTextToSize(line, 170);
+
+    if (y + wrapped.length * 5 > 260) {
+      pdf.addPage();
+      pageNumber++;
+      addEngineeringFrame(pdf, pageNumber, "Teacher Copy — All Students");
+      y = 30;
+    }
+
+    pdf.text(wrapped, 20, y);
+    y += wrapped.length * 5 + 8;
+  }
+
+  pdf.save("teacher_all_students.pdf");
+};
+
+/* PNG */
+window.exportPNG = async function() {
+  const canvas = await html2canvas(document.body, { scale: 2 });
+  const link = document.createElement("a");
+  link.download = "full_page.png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+};
+
+/* CSV */
+window.exportCSV = async function() {
+  const responses = await getMyResponses();
+  if (!responses.length) return alert("No responses found.");
+
+  let csv = "Presentation,Response\n";
+
+  responses.forEach(r => {
+    const clean = r.text.replace(/"/g, '""');
+    csv += `"Presentation ${r.questionNumber}","${clean}"\n`;
+  });
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `student_${anonID}.csv`;
+  link.click();
+};
 
 </script>
 </body>
